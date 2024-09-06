@@ -9,6 +9,7 @@
 //     | ButtonPressMask | ButtonReleaseMask;
 
 bool first_win_found = false;
+bool win_locked_at_least_once = false;
 bool win_locked = false;
 Display *display = NULL;
 Window win_to_lock = BadWindow;
@@ -19,10 +20,40 @@ XColor toggle_color = {.red = 0xFFFF, .green = 0, .blue = 0, .flags = DoRed | Do
 time_t toggle_time;
 int BORDER_FLASH_TIME = 2;
 
+Window find_largest_nonroot_window(Window win)
+{
+    Window head, root, parent;
+    Window *children;
+    unsigned int nchildren;
+
+    head = win;
+    while(true)
+    {
+        Status status = XQueryTree(display, head, &root, &parent, &children, &nchildren);
+        if(status == BadWindow || parent == root)
+        {
+            return head;
+        }
+        head = parent;
+    }
+}
+
 void toggle_lock()
 {
     if(!win_locked)
     {
+        if(win_locked_at_least_once)
+        {
+            // now that we are re-enaging the lock, we should lock the window with focus
+            Window win;
+            int revert_state;
+            XGetInputFocus(display, &win, &revert_state);
+            if(win != BadWindow)
+            {
+                win_to_lock = win;
+                fprintf(stderr, "new window to grab: %ld\n", win_to_lock);
+            }
+        }
         int status = XGrabPointer(display, win_to_lock, True, 0, GrabModeAsync, GrabModeAsync, win_to_lock, None, CurrentTime);
         if(status != GrabSuccess)
         {
@@ -32,6 +63,7 @@ void toggle_lock()
         fprintf(stderr, "Grabbed window\n");
         win_locked = true;
         time(&toggle_time);
+        win_locked_at_least_once = true;
     }
     else
     {
@@ -61,22 +93,15 @@ void init_first_window(Display *disp, Window win)
     {
         return;
     }
-    Window root;
-    Window parent;
-    Window *children;
-    unsigned int nchildren_return;
-    Status status = XQueryTree(disp, win, &root, &parent, &children, &nchildren_return);
-    if(status == BadWindow)
+    display = disp;
+    first_win_found = true;
+    win_to_lock = win;
+    Status status = XGetWindowAttributes(display, win_to_lock, &attrs);
+    if(status == BadWindow || status == BadDrawable)
     {
         return;
     }
-    first_win_found = true;
-    display = disp;
-    win_to_lock = root;
-    if(children != NULL)
-    {
-        XFree(children);
-    }
+    fprintf(stderr, "%d, %d, %d, %d\n", attrs.x, attrs.y, attrs.width, attrs.height);
     fprintf(stderr, "found initial root window: %ld\n", win_to_lock);
     
     // this is also a good time to initialize and read environment variables, since shared objects dont get main()'s
@@ -119,8 +144,11 @@ void xevent_hook(XEvent *evt)
         {
         }
     }
-    XDrawRectangle(display, win_to_lock, gc, attrs.x, attrs.y, attrs.width, attrs.height);
-    fprintf(stderr, "%d, %d, %d, %d\n", attrs.x, attrs.y, attrs.width, attrs.height);
+    // wait until XEvents start coming in to try to lock the window
+    if(!win_locked_at_least_once)
+    {
+        toggle_lock();
+    }
 }
 
 #define IMPL(NAME) ((__typeof__(&NAME))(dlsym(RTLD_NEXT, #NAME)))
