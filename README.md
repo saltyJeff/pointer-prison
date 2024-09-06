@@ -1,2 +1,8 @@
 # pointer-prison
-my attempt at an x11 pointer jail
+X11 pointer jail.
+
+## Features
+
+## Usage
+
+## How it works
