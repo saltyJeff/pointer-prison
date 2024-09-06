@@ -8,7 +8,7 @@ project(PointerPrison
 include (${CMAKE_ROOT}/Modules/FindX11.cmake)
 message("X11_FOUND: ${X11_FOUND}")
 
-add_library(pp SHARED pp.c)
+add_library(pp SHARED pp.c xlib_funcs.inc)
 include_directories(${X11_INCLUDE_DIR})
 target_link_libraries(pp ${X11_LIBRARIES})
 

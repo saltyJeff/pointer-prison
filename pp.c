@@ -16,7 +16,7 @@ Window win_to_lock = BadWindow;
 long toggle_lock_keycode = 105; // right control
 GC gc;
 XWindowAttributes attrs;
-XColor toggle_color = {.red = 0xFFFF, .green = 0, .blue = 0, .flags = DoRed | DoGreen | DoBlue };
+XColor toggle_color = {.red = 0xFFFF, .green = 0, .blue = 0, .flags = DoRed | DoGreen | DoBlue};
 time_t toggle_time;
 int BORDER_FLASH_TIME = 2;
 
@@ -27,10 +27,10 @@ Window find_largest_nonroot_window(Window win)
     unsigned int nchildren;
 
     head = win;
-    while(true)
+    while (true)
     {
         Status status = XQueryTree(display, head, &root, &parent, &children, &nchildren);
-        if(status == BadWindow || parent == root)
+        if (status == BadWindow || parent == root)
         {
             return head;
         }
@@ -40,22 +40,22 @@ Window find_largest_nonroot_window(Window win)
 
 void toggle_lock()
 {
-    if(!win_locked)
+    if (!win_locked)
     {
-        if(win_locked_at_least_once)
+        if (win_locked_at_least_once)
         {
             // now that we are re-enaging the lock, we should lock the window with focus
             Window win;
             int revert_state;
             XGetInputFocus(display, &win, &revert_state);
-            if(win != BadWindow)
+            if (win != BadWindow)
             {
                 win_to_lock = win;
                 fprintf(stderr, "new window to grab: %ld\n", win_to_lock);
             }
         }
         int status = XGrabPointer(display, win_to_lock, True, 0, GrabModeAsync, GrabModeAsync, win_to_lock, None, CurrentTime);
-        if(status != GrabSuccess)
+        if (status != GrabSuccess)
         {
             fprintf(stderr, "Failed to grab window: %d\n", status);
             return;
@@ -89,7 +89,7 @@ void init_window_drawing()
 void init_first_window(Display *disp, Window win)
 {
     // we want to hook only windows that use mouse events to prevent false errors
-    if(first_win_found)
+    if (first_win_found)
     {
         return;
     }
@@ -97,13 +97,13 @@ void init_first_window(Display *disp, Window win)
     first_win_found = true;
     win_to_lock = win;
     Status status = XGetWindowAttributes(display, win_to_lock, &attrs);
-    if(status == BadWindow || status == BadDrawable)
+    if (status == BadWindow || status == BadDrawable)
     {
         return;
     }
     fprintf(stderr, "%d, %d, %d, %d\n", attrs.x, attrs.y, attrs.width, attrs.height);
     fprintf(stderr, "found initial root window: %ld\n", win_to_lock);
-    
+
     // this is also a good time to initialize and read environment variables, since shared objects dont get main()'s
     init_window_drawing();
 
@@ -119,107 +119,157 @@ void init_first_window(Display *disp, Window win)
     //         return;
     //     }
     // }
-    toggle_lock();
     return;
 }
 void xevent_hook(XEvent *evt)
 {
-    if(evt == NULL)
+    if (evt == NULL)
     {
         return;
     }
-    if(evt->type == KeyPress)
+    if (evt->type == KeyPress)
     {
-        if(evt->xkey.keycode == toggle_lock_keycode)
+        if (evt->xkey.keycode == toggle_lock_keycode)
         {
             toggle_lock();
         }
     }
-    if(evt->type == Expose && !(evt->xexpose.count))
+    if (evt->type == Expose && !(evt->xexpose.count))
     {
         time_t now;
         time(&now);
-        //fprintf(stderr, "%f\n", difftime(now, toggle_time));
-        if(difftime(now, toggle_time) < BORDER_FLASH_TIME)
-        {
-        }
+        // fprintf(stderr, "%f\n", difftime(now, toggle_time));
+        if (difftime(now, toggle_time) < BORDER_FLASH_TIME) {}
     }
     // wait until XEvents start coming in to try to lock the window
-    if(!win_locked_at_least_once)
+    if (!win_locked_at_least_once)
     {
         toggle_lock();
     }
 }
 
-#define IMPL(NAME) ((__typeof__(&NAME))(dlsym(RTLD_NEXT, #NAME)))
-
-int XMapWindow(Display *d, Window w)
+int patch_XMapWindow(Display *d, Window w, __typeof__(&XMapWindow) impl)
 {
-    Status impl_ret = IMPL(XMapWindow)(d, w);
-    if(impl_ret != BadWindow)
+    Status impl_ret = impl(d, w);
+    if (impl_ret != BadWindow)
     {
         init_first_window(d, w);
     }
     return impl_ret;
 }
 
-Bool XCheckMaskEvent(Display *d, long mask, XEvent* e)
+Bool patch_XCheckMaskEvent(Display *d, long mask, XEvent *e, __typeof__(&XCheckMaskEvent) impl)
 {
-    Bool impl_ret = IMPL(XCheckMaskEvent)(d, mask, e);
-    if(impl_ret)
+    Bool impl_ret = impl(d, mask, e);
+    if (impl_ret)
     {
         xevent_hook(e);
     }
     return impl_ret;
 }
-Bool XCheckTypedEvent(Display *d, int evt_type, XEvent *e)
+Bool patch_XCheckTypedEvent(Display *d, int evt_type, XEvent *e, __typeof__(&XCheckTypedEvent) impl)
 {
-    Bool impl_ret = IMPL(XCheckTypedEvent)(display, evt_type, e);
-    if(impl_ret)
+    Bool impl_ret = impl(display, evt_type, e);
+    if (impl_ret)
     {
         xevent_hook(e);
     }
     return impl_ret;
 }
-Bool XCheckTypedWindowEvent(Display *d, Window w, int evt_type, XEvent *e)
+Bool patch_XCheckTypedWindowEvent(Display *d, Window w, int evt_type, XEvent *e, __typeof__(&XCheckTypedWindowEvent) impl)
 {
-    Bool impl_ret = IMPL(XCheckTypedWindowEvent)(d, w, evt_type, e);
-    if(impl_ret)
+    Bool impl_ret = impl(d, w, evt_type, e);
+    if (impl_ret)
     {
         xevent_hook(e);
     }
     return impl_ret;
 }
-Bool XCheckIfEvent(Display *d, XEvent *e, Bool(*pred)(Display*, XEvent*, XPointer), XPointer a)
+Bool patch_XCheckIfEvent(Display *d, XEvent *e, Bool (*pred)(Display *, XEvent *, XPointer), XPointer a, __typeof__(&XCheckIfEvent) impl)
 {
-    Bool impl_ret = IMPL(XCheckIfEvent)(d, e, pred, a);
-    if(impl_ret)
+    Bool impl_ret = impl(d, e, pred, a);
+    if (impl_ret)
     {
         xevent_hook(e);
     }
     return impl_ret;
 }
-int XIfEvent(Display *d, XEvent *e, Bool(*pred)(Display*, XEvent*, XPointer), XPointer a)
+int patch_XIfEvent(Display *d, XEvent *e, Bool (*pred)(Display *, XEvent *, XPointer), XPointer a, __typeof__(&XIfEvent) impl)
 {
-    int impl_ret = IMPL(XIfEvent)(d, e, pred, a);
-    if(impl_ret)
+    int impl_ret = impl(d, e, pred, a);
+    if (impl_ret)
     {
         xevent_hook(e);
     }
     return impl_ret;
 }
-int XMaskEvent(Display *d, long mask, XEvent* e)
+int patch_XMaskEvent(Display *d, long mask, XEvent *e, __typeof__(&XMaskEvent) impl)
 {
-    int impl_ret = IMPL(XMaskEvent)(d, mask, e);
-    if(impl_ret)
+    int impl_ret = impl(d, mask, e);
+    if (impl_ret)
     {
         xevent_hook(e);
     }
     return impl_ret;
 }
-int XNextEvent(Display *d, XEvent *e)
+int patch_XNextEvent(Display *d, XEvent *e, __typeof__(&XNextEvent) impl)
 {
-    int impl_ret = IMPL(XNextEvent)(d, e);
+    int impl_ret = impl(d, e);
     xevent_hook(e);
     return impl_ret;
 }
+
+enum XMethodEnum
+{
+#define X(name) XMethod_##name,
+#include "xlib_funcs.inc"
+#undef X
+    NUM_XMethod
+};
+
+void *xlib_impls[NUM_XMethod];
+bool xlibs_initialized = false;
+void* get_xlib_impl(enum XMethodEnum method)
+{
+    if(!xlibs_initialized)
+    {
+#define X(name) xlib_impls[XMethod_##name] = dlsym(RTLD_NEXT, #name);
+#include "xlib_funcs.inc"
+#undef X
+        xlibs_initialized = true;
+    }
+    return xlib_impls[method];
+}
+
+int XMapWindow(Display *d, Window w)
+{
+    return patch_XMapWindow(d, w, get_xlib_impl(XMethod_XMapWindow));
+};
+Bool XCheckMaskEvent(Display *d, long mask, XEvent *e)
+{
+    return patch_XCheckMaskEvent(d, mask, e, get_xlib_impl(XMethod_XCheckMaskEvent));
+};
+Bool XCheckTypedEvent(Display *d, int evt_type, XEvent *e)
+{
+    return patch_XCheckTypedEvent(d, evt_type, e, get_xlib_impl(XMethod_XCheckTypedEvent));
+};
+Bool XCheckTypedWindowEvent(Display *d, Window w, int evt_type, XEvent *e)
+{
+    return patch_XCheckTypedWindowEvent(d, w, evt_type, e, get_xlib_impl(XMethod_XCheckTypedWindowEvent));
+};
+Bool XCheckIfEvent(Display *d, XEvent *e, Bool (*pred)(Display *, XEvent *, XPointer), XPointer a)
+{
+    return patch_XCheckIfEvent(d, e, pred, a, get_xlib_impl(XMethod_XCheckIfEvent));
+};
+int XIfEvent(Display *d, XEvent *e, Bool (*pred)(Display *, XEvent *, XPointer), XPointer a)
+{
+    return patch_XIfEvent(d, e, pred, a, get_xlib_impl(XMethod_XIfEvent));
+};
+int XMaskEvent(Display *d, long mask, XEvent *e)
+{
+    return patch_XMaskEvent(d, mask, e, get_xlib_impl(XMethod_XMaskEvent));
+};
+int XNextEvent(Display *d, XEvent *e)
+{
+    return patch_XNextEvent(d, e, get_xlib_impl(XMethod_XNextEvent));
+};
